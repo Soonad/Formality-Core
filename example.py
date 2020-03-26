@@ -11,4 +11,5 @@ code = """
     (A;) => (t) => (f) => f
 """
 
-print stringify_mod(parse_mod(code, 0))
+print(stringify_mod(parse_mod(code, 0)))
+

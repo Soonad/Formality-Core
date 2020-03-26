@@ -13,16 +13,16 @@ function Typ() {
   return {ctor: "Typ"};
 };
 
-function All(name, bind, body, eras) {
-  return {ctor: "All", name, bind, body, eras};
+function All(eras, name, bind, body) {
+  return {ctor: "All", eras, name, bind, body};
 };
 
-function Lam(name, body, eras) {
-  return {ctor: "Lam", name, body, eras};
+function Lam(eras, name, body) {
+  return {ctor: "Lam", eras, name, body};
 };
 
-function App(func, argm, eras) {
-  return {ctor: "App", func, argm, eras};
+function App(eras, func, argm) {
+  return {ctor: "App", eras, func, argm};
 };
 
 function Slf(name, type) {
@@ -166,7 +166,7 @@ function parse_all(code, indx, vars) {
   var [indx, skip] = parse_str(")", code, space(code, indx));
   var [indx, skip] = parse_str("->", code, space(code, indx));
   var [indx, body] = parse_trm(code, indx, Ext(name, vars));
-  return [indx, All(name, bind, body, eras)];
+  return [indx, All(eras, name, bind, body)];
 };
 
 // Parses a dependent function value, `(<name>) => <term>`
@@ -177,7 +177,7 @@ function parse_lam(code, indx, vars) {
   var [indx, skip] = parse_str(")", code, space(code, indx));
   var [indx, skip] = parse_str("=>", code, space(code, indx));
   var [indx, body] = parse_trm(code, indx, Ext(name, vars));
-  return [indx, Lam(name, body, eras)];
+  return [indx, Lam(eras, name, body)];
 };
 
 // Parses the type of types, `Type`
@@ -229,7 +229,7 @@ function parse_app(code, indx, func, vars) {
   var [indx, argm] = parse_trm(code, indx, vars);
   var [indx, eras] = parse_opt(";", code, space(code, indx));
   var [indx, skip] = parse_str(")", code, space(code, indx));
-  return [indx, App(func, argm, eras)];
+  return [indx, App(eras, func, argm)];
 };
 
 // Parses an annotation, `<term> :: <term>`
@@ -367,17 +367,17 @@ function shift(term, inc, dep) {
       var bind = shift(term.bind, inc, dep);
       var body = shift(term.body, inc, dep + 1);
       var eras = term.eras;
-      return All(name, bind, body, eras);
+      return All(eras, name, bind, body);
     case "Lam":
       var name = term.name;
       var body = shift(term.body, inc, dep + 1);
       var eras = term.eras;
-      return Lam(name, body, eras);
+      return Lam(eras, name, body);
     case "App":
       var func = shift(term.func, inc, dep);
       var argm = subst(term.argm, inc, dep);
       var eras = term.eras;
-      return App(func, argm, eras);
+      return App(eras, func, argm);
     case "Slf":
       var name = term.name;
       var type = shift(term.type, inc, dep + 1);
@@ -414,17 +414,17 @@ function subst(term, val, dep) {
       var bind = subst(term.bind, val, dep);
       var body = subst(term.body, shift(val,1,0), dep + 1);
       var eras = term.eras;
-      return All(name, bind, body, eras);
+      return All(eras, name, bind, body);
     case "Lam":
       var name = term.name;
       var body = subst(term.body, shift(val,1,0), dep + 1);
       var eras = term.eras;
-      return Lam(name, body, eras);
+      return Lam(eras, name, body);
     case "App":
       var func = subst(term.func, val, dep);
       var argm = subst(term.argm, val, dep);
       var eras = term.eras;
-      return App(func, argm, eras);
+      return App(eras, func, argm);
     case "Slf":
       var name = term.name;
       var type = subst(term.type, shift(val,1,0), dep + 1);
@@ -463,17 +463,17 @@ function to_high_order(term, vars = Nil()) {
       var bind = to_high_order(term.bind, vars);
       var body = x => to_high_order(term.body, Ext(x, vars));
       var eras = term.eras;
-      return All(name, bind, body, eras);
+      return All(eras, name, bind, body);
     case "Lam": 
       var name = term.name;
       var body = x => to_high_order(term.body, Ext(x, vars));
       var eras = term.eras;
-      return Lam(name, body, eras);
+      return Lam(eras, name, body);
     case "App":
       var func = to_high_order(term.func, vars);
       var argm = to_high_order(term.argm, vars);
       var eras = term.eras;
-      return App(func, argm, eras);
+      return App(eras, func, argm);
     case "Slf":
       var name = term.name;
       var type = x => to_high_order(term.type, Ext(x, vars));
@@ -509,17 +509,17 @@ function to_low_order(term, depth = 0) {
       var bind = to_low_order(term.bind, depth);
       var body = to_low_order(term.body(Var(depth)), depth + 1);
       var eras = term.eras;
-      return All(name, bind, body, eras);
+      return All(eras, name, bind, body);
     case "Lam":
       var name = "x" + depth;
       var body = to_low_order(term.body(Var(depth)), depth + 1);
       var eras = term.eras;
-      return Lam(name, body, eras);
+      return Lam(eras, name, body);
     case "App":
       var func = to_low_order(term.func, depth);
       var argm = to_low_order(term.argm, depth);
       var eras = term.eras;
-      return App(func, argm, eras);
+      return App(eras, func, argm);
     case "Slf":
       var name = "x" + depth;
       var type = to_low_order(term.type(Var(depth)), depth + 1);
@@ -551,19 +551,19 @@ function reduce_high_order(term) {
       var bind = term.bind;
       var body = term.body;
       var eras = term.eras;
-      return All(name, bind, body, eras);
+      return All(eras, name, bind, body);
     case "Lam":
       var name = term.name;
       var body = term.body;
       var eras = term.eras;
-      return Lam(name, body, eras);
+      return Lam(eras, name, body);
     case "App":
       var func = reduce_high_order(term.func);
       switch (func.ctor) {
         case "Lam":
           return reduce_high_order(func.body(term.argm));
         default:
-          return App(func, reduce_high_order(term.argm));
+          return App(term.eras, func, reduce_high_order(term.argm));
       };
     case "Slf":
       var name = term.name;
@@ -591,12 +591,12 @@ function normalize_high_order(term) {
       var bind = normalize_high_order(term.bind);
       var body = x => normalize_high_order(term.body(x));
       var eras = term.eras;
-      return All(name, bind, body, eras);
+      return All(eras, name, bind, body);
     case "Lam":
       var name = term.name;
       var body = x => normalize_high_order(term.body(x));
       var eras = term.eras;
-      return Lam(name, body, eras);
+      return Lam(eras, name, body);
     case "App":
       var func = reduce_high_order(term.func);
       switch (func.ctor) {
@@ -651,7 +651,7 @@ function typecheck(term, type = null, ctx = Nil()) {
         case "All":
           var body_ctx = Ext(type.bind, ctx);
           var body_typ = typecheck(term.body, type.body, body_ctx);
-          return All(term.name, type.bind, body_typ, term.eras);
+          return All(term.eras, term.name, type.bind, body_typ);
         default:
           throw "Lambda has a non-function type.";
       }

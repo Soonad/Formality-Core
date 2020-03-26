@@ -10,14 +10,14 @@ def Ref(name):
 def Typ():
     return {"ctor": "Typ"}
 
-def All(name, bind, body, eras):
-    return {"ctor": "All", "name": name, "bind": bind, "body": body, "eras": eras}
+def All(eras, name, bind, body):
+    return {"ctor": "All", "eras": eras, "name": name, "bind": bind, "body": body}
 
-def Lam(name, body, eras):
-    return {"ctor": "Lam", "name": name, "body": body, "eras": eras}
+def Lam(eras, name, body):
+    return {"ctor": "Lam", "eras": eras, "name": name, "body": body}
 
-def App(func, argm, eras):
-    return {"ctor": "App", "func": func, "argm": argm, "eras": eras}
+def App(eras, func, argm):
+    return {"ctor": "App", "eras": eras, "func": func, "argm": argm}
 
 def Slf(name, type):
     return {"ctor": "Slf", "name": name, "type": type}
@@ -135,7 +135,7 @@ def parse_all(code, indx, vars):
     [indx, skip] = parse_str(")", code, space(code, indx))
     [indx, skip] = parse_str("->", code, space(code, indx))
     [indx, body] = parse_trm(code, indx, Ext(name, vars))
-    return [indx, All(name, bind, body, eras)];
+    return [indx, All(eras,name, bind, body)];
 
 # Parses a dependent function value, `(<name>) => <term>`
 def parse_lam(code, indx, vars):
@@ -145,7 +145,7 @@ def parse_lam(code, indx, vars):
     [indx, skip] = parse_str(")", code, space(code, indx))
     [indx, skip] = parse_str("=>", code, space(code, indx))
     [indx, body] = parse_trm(code, indx, Ext(name, vars))
-    return [indx, Lam(name, body, eras)]
+    return [indx, Lam(eras, name, body)]
 
 # Parses the type of types, `Type`
 def parse_typ(code, indx, vars):
@@ -190,7 +190,7 @@ def parse_app(code, indx, func, vars):
     [indx, argm] = parse_trm(code, indx, vars)
     [indx, eras] = parse_opt(";", code, space(code, indx))
     [indx, skip] = parse_str(")", code, space(code, indx))
-    return [indx, App(func, argm, eras)]
+    return [indx, App(eras, func, argm)]
 
 # Parses an annotation, `<term> :: <term>`
 def parse_ann(code, indx, expr, vars):
