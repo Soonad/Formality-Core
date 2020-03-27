@@ -1,14 +1,14 @@
 module FormalityCore where
 
-import Data.List hiding (all)
-import Data.Maybe
-import qualified Data.Map.Strict as M
+import           Data.List           hiding (all)
+import qualified Data.Map.Strict     as M
+import           Data.Maybe
 
-import Control.Applicative
-import Control.Monad
-import Data.Foldable hiding (all)
+import           Control.Applicative
+import           Control.Monad
+import           Data.Foldable       hiding (all)
 
-import Prelude hiding (all, mod)
+import           Prelude             hiding (all, mod)
 
 type Name = String
 type Done = Bool
@@ -184,13 +184,13 @@ stringifyTerm t = go [] t
                         else cat ["(", n,  ") => ", go (n:vs) b]
     App e f a   -> if e then cat ["(", go vs f, ")(", go vs a, ";)"]
                         else cat ["(", go vs f, ")(", go vs a, ")"]
-    Slf n t        -> cat ["#{", n, "}", go (n:vs) t]
-    Ins t x        -> cat ["new(", go vs t, ")", go vs x]
-    Eli x          -> cat ["use(", go vs x, ")"]
-    Ann d x y      -> cat [go vs y, " :: ", go vs x]
+    Slf n t     -> cat ["#{", n, "}", go (n:vs) t]
+    Ins t x     -> cat ["new(", go vs t, ")", go vs x]
+    Eli x       -> cat ["use(", go vs x, ")"]
+    Ann d x y   -> cat [go vs y, " :: ", go vs x]
 
 stringifyDef :: Def -> String
-stringifyDef (Def n t d) = 
+stringifyDef (Def n t d) =
   concat [n," : ", stringifyTerm t, "\n", stringifyTerm d]
 
 stringifyMod :: Module -> String
@@ -200,16 +200,16 @@ stringifyMod = foldl (\s d -> s ++ "\n\n" ++ stringifyDef d) ""
 
 shift :: Int -> Int -> Term -> Term
 shift inc dep term = let go x = shift inc dep x in case term of
-  Var i        -> Var (if i < dep then i else (i + inc))
-  Ref n        -> Ref n
-  Typ          -> Typ
-  All e n h b  -> All e n (go h) (shift inc (dep + 1) b)
-  Lam e n b    -> Lam e n (shift inc (dep + 1) b)
-  App e f a    -> App e (go f) (go a)
-  Slf n t      -> Slf n (shift inc (dep + 1) t)
-  Ins t x      -> Ins (go t) (go x)
-  Eli x        -> Eli (go x)
-  Ann d t x    -> Ann d (go t) (go x)
+  Var i       -> Var (if i < dep then i else (i + inc))
+  Ref n       -> Ref n
+  Typ         -> Typ
+  All e n h b -> All e n (go h) (shift inc (dep + 1) b)
+  Lam e n b   -> Lam e n (shift inc (dep + 1) b)
+  App e f a   -> App e (go f) (go a)
+  Slf n t     -> Slf n (shift inc (dep + 1) t)
+  Ins t x     -> Ins (go t) (go x)
+  Eli x       -> Eli (go x)
+  Ann d t x   -> Ann d (go t) (go x)
 
 -- substitute a value for an index at a certain depth in a term
 subst :: Term -> Int -> Term -> Term
@@ -232,7 +232,7 @@ subst v dep term =
 erase :: Term -> Term
 erase term = let go = erase in case term of
   All e n h b  -> All e n (go h) (go b)
-  Lam True n b -> (subst (Ref "<erased>") 0 b) 
+  Lam True n b -> (subst (Ref "<erased>") 0 b)
   Lam e    n b -> Lam e n (go b)
   App True f a -> go f
   App e    f a -> App e (go f) (go a)
@@ -254,16 +254,18 @@ evalTerm term mod = go term
   go t = case t of
     All e n h b -> All e n h b
     Lam e n b   -> Lam e n (go b)
-    App e f a -> case go f of
-      Lam e n b -> go (subst a 0 b)
-      f         -> App e f (go a)
-    Ins t x   -> go x
-    Eli x     -> go x
-    Ann d t x -> go x
-    Ref n     -> case (deref n mod) of
-      Ref m   -> if n == m then Ref m else go (deref n mod)
-      x       -> go x
-    _         -> term
+    App e f a   ->
+      case go f of
+        Lam e n b -> go (subst a 0 b)
+        f         -> App e f (go a)
+    Ins t x     -> go x
+    Eli x       -> go x
+    Ann d t x   -> go x
+    Ref n       ->
+      case (deref n mod) of
+        Ref m -> if n == m then Ref m else go (deref n mod)
+        x     -> go x
+    _           -> term
 
 data TermH
   = VarH Int
@@ -282,7 +284,7 @@ toTermH t = go [] t
   where
     go :: [TermH] -> Term -> TermH
     go vs t = case t of
-      Var i       -> if i < length vs then vs !! i else VarH i 
+      Var i       -> if i < length vs then vs !! i else VarH i
       Ref n       -> RefH n
       Typ         -> TypH
       All e n h b -> AllH e n (go vs h) (\x -> go (x : vs) b)
@@ -314,18 +316,20 @@ reduceTermH defs t = go t
   where
     go :: TermH -> TermH
     go t = case t of
-      RefH n       -> case deref n defs of
-        Ref m   -> RefH m
-        x       -> go (toTermH x)
-      LamH True n b   -> (b $ RefH "<erased>") 
-      AppH True f a -> go f
-      AppH False f a -> case go f of
-        LamH e n b -> go (b a)
-        f          -> AppH False f (go a)
-      InsH t x   -> go x
-      EliH x     -> go x
-      AnnH d t x -> go x
-      _          -> t
+      RefH n         ->
+        case deref n defs of
+          Ref m -> RefH m
+          x     -> go (toTermH x)
+      LamH True n b  -> (b $ RefH "<erased>")
+      AppH True f a  -> go f
+      AppH False f a ->
+        case go f of
+          LamH e n b -> go (b a)
+          f          -> AppH False f (go a)
+      InsH t x       -> go x
+      EliH x         -> go x
+      AnnH d t x     -> go x
+      _              -> t
 
 normalizeTermH :: Module -> TermH -> TermH
 normalizeTermH defs t = go t
@@ -336,10 +340,10 @@ normalizeTermH defs t = go t
       LamH e n b   -> LamH e n (\x -> go $ b x)
       AppH e f a   -> AppH e (go f) (go a)
       SlfH n t     -> SlfH n (\x -> go $ t x)
-      InsH t x   -> go x
-      EliH x     -> go x
-      AnnH d t x -> go x
-      _          -> t
+      InsH t x     -> go x
+      EliH x       -> go x
+      AnnH d t x   -> go x
+      _            -> t
 
 reduce :: Module -> Term -> Term
 reduce defs = fromTermH . reduceTermH defs . toTermH
