@@ -10,6 +10,9 @@ import           Data.Bits           ((.&.), xor, shiftR, shiftL, Bits)
 import           Data.Word
 import           Data.Char           (ord)
 
+import qualified Data.Sequence as Seq
+import           Data.Sequence (Seq(..), (<|), (|>))
+
 import Control.Monad.ST
 import Data.STRef
 import qualified Data.IntMap.Strict         as IM
@@ -155,10 +158,10 @@ whitespace = takeWhile1P isSpace >> return ()
 
 -- parse // line comments
 lineComment :: Parser ()
-lineComment = 
-  choice 
-    [ sym "//" >> takeWhileP (/= '\n') >> return ()
-    , sym "--" >> takeWhileP (/= '\n') >> return ()
+lineComment =
+  choice
+    [ string "//" >> takeWhileP (/= '\n') >> string "\n" >> return ()
+    , string "--" >> takeWhileP (/= '\n') >> return ()
     ]
 
 -- parse `/* */` block comments
@@ -196,9 +199,9 @@ all vs = do
   s <- maybe "" id <$> (optional nam)
   e <- (string "(" >> return False) <|> (string "<" >> return True)
   n <- maybe "" id <$> (optional nam <* space)
-  t <- sym ":" >> trm vs <* space
+  t <- sym ":" >> trm (s : vs) <* space
   (if e then sym ">" else sym ")")
-  b <- sym "->" >> trm (n : vs)
+  b <- sym "->" >> trm (n : s : vs)
   return $ AllP e s n t b
 
 -- Parses a dependent function value, `(<name>) => <term>`
@@ -308,16 +311,13 @@ testString1 = intercalate "\n"
 --          TypP   -> cat ["Type -> ",go ("":"":vs) b]
 --          _     -> cat [era False [go ("":vs) h], " -> ", go ("":"":vs) b]
 --        AllP e s n h b -> cat [s,era e [n," : ",go (s:vs) h]," -> ",go (n:s:vs) b]
---        LamP e n b     -> cat [era e [n]," => ",go (n:vs) b]
+--        LamP e n b     -> cat [era e [n]," ",go (n:vs) b]
 --        AppP e f a     -> case f of
 --          (RefP n) -> cat [n,era e [go vs a]]
 --          (VarP i) -> cat [vs !! i,era e [go vs a]]
 --          f       -> cat ["(", go vs f,")", era e [go vs a]]
 --        LetP n x b     -> cat ["let ", n," = ",go vs x,";", go (n:vs) b]
 --        AnnP d x y     -> cat [go vs y," :: ",go vs x]
-
--- Formality-Core modules
-
 
 
 --instance Show Def where
@@ -333,7 +333,7 @@ testString1 = intercalate "\n"
 -- Hashing
 -- =============
 
-newtype Hash = Hash {_word32 :: Word32} deriving (Eq,Num,Bits) via Word32
+newtype Hash = Hash {_word32 :: Word32} deriving (Eq,Num,Bits,Show) via Word32
 
 mix64 :: Word64 -> Word64
 mix64 h =
@@ -344,7 +344,10 @@ mix64 h =
    in xor h4 (shiftR h4 33)
 
 hashTwo :: Hash -> Hash -> Hash
-hashTwo x y = x .&. (shiftL y 32)
+hashTwo (Hash x) (Hash y) = Hash $ fromIntegral pos
+  where
+     pre = (fromIntegral x) `xor` (shiftL (fromIntegral y) 32)
+     pos = shiftR (mix64 $ pre) 32
 
 instance Semigroup Hash where
   (<>) = hashTwo
@@ -358,7 +361,7 @@ hashStr str = foldMap (fromIntegral . ord) str
 
 -- Formality-Core Terms
 data Term
-  = Var { _hash :: Hash, _indx :: Int, _absl :: Int } 
+  = Var { _hash :: Hash, _indx :: Int}
   | Ref { _hash :: Hash, _name :: Name }
   | Typ { _hash :: Hash }
   | All { _hash :: Hash, _eras :: Eras, _self :: Name
@@ -368,13 +371,18 @@ data Term
   | App { _hash :: Hash, _eras :: Eras, _func :: Term, _argm :: Term}
   | Let { _hash :: Hash, _name :: Name, _expr :: Term, _body :: Term}
   | Ann { _hash :: Hash, _done :: Bool, _type :: Term, _term :: Term}
+  deriving Show
+
+
 
 -- Formality-Core definitions
 data Def = 
-  Def { _defName :: Name, _defHash :: Hash, _defType :: Term, _defTerm :: Term }
+  Def { _defName :: Name, _defHash :: Hash, _defType :: Term, _defTerm :: Term } deriving Show
 
 -- Formality-Core Module
-data Module = Module { _modHash :: Hash, _defs :: M.Map Name Def }
+data Module = Module { _modHash :: Hash, _defs :: M.Map Name Def } deriving Show
+
+emptyMod = Module 0 M.empty
 
 toModule :: ModuleP -> Module
 toModule (ModuleP defs) =
@@ -384,50 +392,50 @@ toModule (ModuleP defs) =
 
 toDef :: DefP -> Def
 toDef (DefP n t d) = 
-  let t' = toTerm 0 t
-      d' = toTerm 0 t
+  let t' = toTerm t
+      d' = toTerm d
    in Def n (_hash t' <> _hash d') t' d'
 
-toTerm :: Int -> TermP -> Term
-toTerm d t = let go n = toTerm (d + n) in case t of
-  VarP i         -> Var (1 <> fromIntegral i <> fromIntegral d) i d
+toTerm :: TermP -> Term
+toTerm t = let go = toTerm in case t of
+  VarP i         -> Var (1 <> fromIntegral i) i
   RefP n         -> Ref (2 <> hashStr n) n
   TypP           -> Typ (3 <> 0)
   AllP e s n h b ->
-    let h' = go 1 h
-        b' = go 2 b
+    let h' = go h
+        b' = go b
         hash = 4 <> _hash h' <> _hash b'
     in All hash e s n h' b'
   LamP e n b     ->
-    let b'   = go 1 b
+    let b'   = go b
         hash = 5  <> _hash b'
     in Lam hash e n b'
   AppP e f a     ->
-    let f'   = go 0 f
-        a'   = go 0 a
+    let f'   = go f
+        a'   = go a
         hash = 6 <> _hash f' <> _hash a'
      in App hash e f' a'
   LetP n x b     ->
-    let x'   = go 0 x
-        b'   = go 1 x
+    let x'   = go x
+        b'   = go x
         hash = 7 <> _hash x' <> _hash b'
      in Let hash n x' b'
-  AnnP c t x     ->
-    let t'   = go d t
-        x'   = go d x
+  AnnP d t x     ->
+    let t'   = go t
+        x'   = go x
         hash = 8 <> _hash t' <> _hash x'
-     in Ann hash c t' x'
+     in Ann hash d t' x'
 
---fromTermE :: TermE -> Term
---fromTermE t = let go = fromTermE in case t of
---  VarE _ i         -> Var i
---  RefE _ n         -> Ref n
---  TypE _           -> Typ
---  AllE _ e s n h b -> All e s n (go h) (go b)
---  LamE _ e n b     -> Lam e n (go b)
---  AppE _ e f a     -> App e (go f) (go a)
---  LetE _ n x b     -> Let n (go x) (go b)
---  AnnE _ d t x     -> Ann d (go t) (go x)
+fromTerm :: Term -> TermP
+fromTerm t = let go = fromTerm in case t of
+  Var _ i         -> VarP i
+  Ref _ n         -> RefP n
+  Typ _           -> TypP
+  All _ e s n h b -> AllP e s n (go h) (go b)
+  Lam _ e n b     -> LamP e n (go b)
+  App _ e f a     -> AppP e (go f) (go a)
+  Let _ n x b     -> LetP n (go x) (go b)
+  Ann _ d t x     -> AnnP d (go t) (go x)
 
 -- Substitution
 -- ============
@@ -436,8 +444,8 @@ toTerm d t = let go n = toTerm (d + n) in case t of
 shift :: Int -> Int -> Term -> Term
 shift 0 _ term     = term
 shift inc dep term = let go n x = shift inc (dep + n) x in case term of
-  Var h i a       -> if i < dep then term else
-    Var (1 <> (fromIntegral $ i + inc) <> fromIntegral a) (i + inc) a
+  Var h i         -> if i < dep then term else
+    Var (1 <> (fromIntegral $ i + inc)) (i + inc)
   All h e s n t b -> 
     let t'   = go 1 t
         b'   = go 2 b
@@ -468,10 +476,10 @@ shift inc dep term = let go n x = shift inc (dep + n) x in case term of
 subst :: Term -> Int -> Term -> Term
 subst v dep term = let go n x = subst (shift n 0 v) (dep + n) x in
   case term of
-    Var h i a -> case compare i dep of
-      EQ -> v 
-      LT -> Var (1 <> (fromIntegral $ i - 1) <> fromIntegral a) (i - 1) a
-      GT -> Var h i a
+    Var h i -> case compare i dep of
+      EQ -> v
+      LT -> Var (1 <> (fromIntegral $ i - 1)) (i - 1)
+      GT -> Var h i
     All h e s n t b -> 
       let t'   = (go 1 t)
           b'   = (go 2 b)
@@ -550,7 +558,7 @@ evalTerm term mod = go term
     Ann h d t x     -> go x
     Let h n x b     -> subst x 0 b
     Ref h n         -> case (deref n mod) of
-      Ref h' m -> if n == m then Ref h m else go (deref n mod)
+      Ref h' m -> go (deref n mod)
       x        -> go x
     _               -> term
 
@@ -571,7 +579,9 @@ toTermH t = go [] t
   where
     go :: [TermH] -> Term -> TermH
     go vs t = case t of
-      Var _ i _       -> if i < length vs then vs !! i else VarH i
+      Var _ i         -> case find vs i of
+        Nothing -> VarH i
+        Just x  -> x
       Ref _ n         -> RefH n
       Typ _           -> TypH
       All _ e s n h b -> AllH e s n (\x -> go (x:vs) h) (\x y -> go (y:x:vs) b)
@@ -586,7 +596,7 @@ fromTermH t = go 0 t
   where
     go :: Int -> TermH -> Term
     go d t = case t of
-      VarH n         -> Var (fromIntegral $ d - n) (d - n) 0
+      VarH n         -> Var (fromIntegral $ n) n
       RefH n         -> Ref (hashStr n) n
       TypH           -> Typ (3 <> 0)
       AllH e s n h b -> 
@@ -748,61 +758,161 @@ union refX refY = do
 equivalent :: NRef s -> NRef s -> ST s Bool
 equivalent x y = (==) <$> findRoot x <*> findRoot y
 
+isEquivalent :: Equiv s -> Val -> Val -> ST s Bool
+isEquivalent eq a b = do
+  elems <- readSTRef (_elems eq)
+  case (IM.lookup a elems, IM.lookup b elems) of
+    (Just x,Just y) -> (==) <$> findRoot x <*> findRoot y
+    _               -> equate eq a b >> return (a == b)
+
 getRef :: Equiv s -> Val -> ST s (Maybe (NRef s))
 getRef eq x = do
   m <- readSTRef (_elems eq)
   return $ IM.lookup x m
 
-equate :: Equiv s -> Val -> Val -> ST s Bool
+equate :: Equiv s -> Val -> Val -> ST s ()
 equate eq x y = do
   rx <- (maybe (singleton eq x) return) =<< (getRef eq x)
   ry <- (maybe (singleton eq y) return) =<< (getRef eq y)
-  equivalent rx ry
+  union rx ry
 
 -- Equality
 -- ========
 
 congruent :: Equiv s -> Term -> Term -> ST s Bool
 congruent eq a b = do
-  let getHash = fromIntegral . _word32 ._hash
-  t <- equate eq (getHash a) (getHash b)
-  if t then return True
-  else do
+  let getHash = fromIntegral . _word32 . _hash
+  i <- isEquivalent eq (getHash a) (getHash b)
+  if i then return True else do
   let go = congruent eq
   case (a,b) of
     (All _ _ _ _ h b, All _ _ _ _ h' b') -> (&&) <$> go h h' <*> go b b'
     (Lam _ _ _ b,     Lam _ _ _ b')      -> go b b'
     (App _ _ f a,     App _ _ f' a')     -> (&&) <$> go f f' <*> go a a'
     (Let _ _ x b,     Let _ _ x' b')     -> (&&) <$> go x x' <*> go b b'
-    (Ann _ _ t x,     Ann _ _ t' x')     -> (&&) <$> go t t' <*> go x x'
-    _                                      -> return False
+    (Ann _ _ t x,     Ann _ _ t' x')     -> go x x'
+    _                                    -> return False
 
---equal :: Module -> TermE -> TermE -> Bool
---equal mod a b = runST $ (newEquiv >>= (\e -> go e [(a,b,0)]))
---  where
---    hash = fromIntegral . getHash
---    go :: Equiv s -> [(TermE,TermE,Int)] -> ST s Bool
---    go _ []          = return True
---    go eq vis@((a,b,depth):vs) = do
---      let a' = reduceE mod a
---      let b' = reduceE mod b
---      id <- congruent eq a' b'
---      equate eq (hash a) (hash a')
---      equate eq (hash b) (hash b')
---      equate eq (hash a') (hash b')
---      if id then go eq vs
---      else case (a',b') of
---        (AllE _ _ _ _ ah ab, AllE _ _ _ _ bh bb) -> do
---          let ah'  = substE (BndE 0 $ depth + 0) 0 ah
---          let bh'  = substE (BndE 0 $ depth + 0) 0 bh
---          let ab'  = substE (BndE 0 $ depth + 1) 0 ab
---          let ab'' = substE (BndE 0 $ depth + 0) 0 ab'
---          let bb'  = substE (BndE 0 $ depth + 1) 0 bb
---          let bb'' = substE (BndE 0 $ depth + 0) 0 bb'
---          go eq ((ab'',bb'', depth + 1):(ah',bh', depth + 1):vs)
---        (LamE _ _ _ b,     LamE _ _ _ b')      -> return False
---        (AppE _ _ f a,     AppE _ _ f' a')     -> return False
---        (LetE _ _ x b,     LetE _ _ x' b')     -> return False
---        (AnnE _ _ t x,     AnnE _ _ t' x')     -> return False
---
---      return True
+equal :: Module -> Term -> Term -> Bool
+equal mod a b = runST $ (newEquiv >>= (\e -> go e $ Seq.singleton (a,b,0)))
+  where
+    getHash = fromIntegral . _word32 . _hash
+    mkRef x = Ref (2 <> hashStr ("%" ++ (show x))) ("%" ++ (show x))
+    go :: Equiv s -> Seq (Term,Term,Int) -> ST s Bool
+    go _  Empty              = return True
+    go eq ((a,b,depth):<|vs) = do
+      let a' = reduce mod a
+      let b' = reduce mod b
+      id <- congruent eq a' b'
+      equate eq (getHash a)  (getHash a')
+      equate eq (getHash b)  (getHash b')
+      equate eq (getHash a') (getHash b')
+      if id then (go eq vs)
+      else case (a',b') of
+        (All _ _ _ _ ah ab, All _ _ _ _ bh bb) -> do
+          let ah'  = subst (mkRef $ depth + 0) 0 ah
+          let bh'  = subst (mkRef $ depth + 0) 0 bh
+          let ab'  = subst (mkRef $ depth + 1) 1 ab
+          let ab'' = subst (mkRef $ depth + 0) 0 ab'
+          let bb'  = subst (mkRef $ depth + 1) 1 bb
+          let bb'' = subst (mkRef $ depth + 0) 0 bb'
+          go eq (vs:|>(ah',bh', depth + 1):|>(ab'',bb'', depth + 2))
+        (Lam _ _ _ ab,     Lam _ _ _ bb)      -> do
+          let ab' = subst (mkRef $ depth + 0) 0 ab
+          let bb' = subst (mkRef $ depth + 0) 0 bb
+          go eq (vs:|>(ab',bb', depth + 1))
+        (App _ _ af aa,     App _ _ bf ba)  -> do
+          go eq (vs:|>(af,bf,depth):|>(aa,ba,depth))
+        (Let _ _ ax ab,     Let _ _ bx bb)     -> do
+          let ab' = subst (mkRef $ depth + 0) 0 ab
+          let bb' = subst (mkRef $ depth + 0) 0 bb
+          go eq (vs:|>(ax,bx,depth):|>(ab',bb',depth + 1))
+        (Ann _ _ _ ax,     Ann _ _ _ bx)     -> do
+          go eq (vs:|>(ax,bx,depth))
+        _ -> return False
+
+data TypeError = TypeError String deriving Show
+
+typecheck :: Module -> [Term] -> [Name] -> Term -> Term ->  Either TypeError Term
+typecheck mod ctx nam typ trm  = case (trm, reduce mod typ) of
+  (Lam _ e n b, typv@(All _ te _ tn th tb)) -> do
+--    let self_typ = Ann True Typ typv
+    let bind_typ = subst trm 0 th
+    let body_typ = subst (shift 0 1 trm) 1 tb
+    if (e /= te) then Left $ TypeError "Erasure mismatch"
+    else typecheck mod (bind_typ:ctx) (n:nam) body_typ b
+  (Lam _ _ _ _, _) -> Left $ TypeError "Lambda has a non-function type"
+  _                -> do 
+    infr <- typeinfer mod ctx nam trm
+    if (equal mod typ infr) then return typ
+    else Left $ TypeError $
+      intercalate "\n" 
+        [ "Unexpected type: "
+        , "Expected: ", show typ
+        , "Inferred: ", show infr
+        , "Inferred on: ", show trm
+        , "Context: ", show ctx
+        , "Names:    ", show nam
+        ]
+
+find :: [a] -> Int -> Maybe a
+find xs i
+  | i < 0 || i >= length xs = Nothing
+  | otherwise = Just $ xs !! i
+
+typeinfer :: Module -> [Term] -> [Name] -> Term -> Either TypeError Term
+typeinfer mod ctx nam term = case term of
+  Var _ i         -> case find ctx i of
+    Nothing -> Left $ TypeError "Unbound variable"
+    Just x  -> return $ shift (i + 1) 0 x
+  Ref _ n         -> case M.lookup n (_defs mod) of
+    Nothing -> Left $ TypeError "Undefined Reference"
+    Just d  -> return $ _defType d
+  Typ h       -> return $ Typ h
+  App _ e f a     -> do
+    func_typ <- reduce mod <$> typeinfer mod ctx nam f
+    case func_typ of
+      All _ te ts tn th tb -> do
+        when (e /= te) (Left $ TypeError "Erasure mismatch")
+        let expe_typ = subst f 0 tb
+        typecheck mod ctx nam expe_typ a
+        let term_typ = subst (shift 1 0 f) 1 tb
+        return $ subst (shift 0 0 a) 0 term_typ
+      _ -> Left $ TypeError "Non-function application"
+  Let _ n x b     -> do
+    expr_type <- typeinfer mod ctx nam x
+    body_type <- typeinfer mod (expr_type:ctx) (n:nam) b
+    return $ subst x 0 body_type
+  All h e s n bind body -> do
+    let self_type = Ann (8 <> (3 <> 0) <> h) True (Typ (3 <> 0)) term
+    bind_typ <- typeinfer mod (self_type:ctx) (s:nam) bind
+    typecheck mod (bind:self_type:ctx) (n:s:nam) (Typ (3 <> 0)) body
+    return $ Typ (3 <> 0)
+  Ann _ True t x  -> return t
+  Ann _ False t x -> typecheck mod ctx nam t x
+  _ -> Left $ TypeError "Can't infer type"
+
+typecheckDef :: Module -> Def -> IO ()
+typecheckDef m (Def nam _ typ term) = do
+  let x = typecheck m [] [] typ term
+  case x of
+    Left (TypeError s) -> do
+      putStrLn ("Checking: " ++ nam)
+      putStrLn s >> return ()
+    Right t            -> print t
+
+
+typecheckName :: Module -> Name -> Either TypeError Term
+typecheckName m n = case (_defs m) M.! n of
+  (Def _ _ term typ) -> typecheck m [] [] typ term
+
+typecheckMod :: IO ()
+typecheckMod = do
+  a <- readFile "test.fm"
+  case runParser mod a of
+   Nothing    -> putStrLn "Parse Error"
+   Just (x,m) -> do
+     when (x /= "") (putStrLn "expected EOF")
+     let mod = toModule m
+     sequence (typecheckDef mod <$> (_defs mod))
+     return ()
