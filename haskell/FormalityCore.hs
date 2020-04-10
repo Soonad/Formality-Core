@@ -897,9 +897,11 @@ typecheckDef m (Def nam _ typ term) = do
   let x = typecheck m [] [] typ term
   case x of
     Left (TypeError s) -> do
-      putStrLn ("Checking: " ++ nam)
+      putStrLn ("ERROR Checking: " ++ nam)
       putStrLn s >> return ()
-    Right t            -> print t
+    Right t            -> do
+      putStrLn ("GOOD Checking: " ++ nam)
+      print t
 
 
 typecheckName :: Module -> Name -> Either TypeError Term

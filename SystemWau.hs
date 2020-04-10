@@ -295,7 +295,7 @@ testString1 = intercalate "\n"
 -- ===================================
 
 instance Show Term where
-  show t = pretty True t
+  show t = pretty False t
 
 pretty :: Bool -> Term -> String
 pretty indices t = case t of
@@ -445,9 +445,9 @@ test4 = intercalate "\n"
   , "(identity a)"
   ]
 
-data BohmTree = BohmRoot Term BohmTree BohmTree
-
-bohmTree :: Term -> Tree
+--data BohmTree = BohmRoot Term BohmTree BohmTree
+--
+--bohmTree :: Term -> Tree
 
 --naiveBohm :: Term -> Term -> Bool
 --naiveBoh a b = 
