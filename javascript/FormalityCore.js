@@ -777,8 +777,8 @@ function bind_free_vars(term, initial_depth) {
       var eras = term.eras;
       var self = term.self;
       var name = term.name;
-      var bind = go(term.bind, depth);
-      var body = go(term.body, depth+1);
+      var bind = go(term.bind, depth+1);
+      var body = go(term.body, depth+2);
       var locs = term.locs;
       return All(eras, self, name, bind, body, locs);
     case "Lam":
@@ -819,39 +819,34 @@ function congruent_terms(map, a, b) {
   } else {
     switch (a.ctor + b.ctor) {
       case "AllAll":
-        var bind_id = congruent_terms(map, a.bind, b.bind);
-        var body_id = congruent_terms(map, a.body, b.body);
-        var ret = bind_id && body_id;
-        break;
+        return a.eras === b.eras
+          && a.self === b.self
+          && congruent_terms(map, a.bind, b.bind)
+          && congruent_terms(map, a.body, b.body);
       case "LamLam":
-        var body_id = congruent_terms(map, a.body, b.body);
-        var ret = body_id;
+        return a.eras === b.eras
+          && congruent_terms(map, a.body, b.body);
         break;
       case "AppApp":
-        var func_id = congruent_terms(map, a.func, b.func);
-        var argm_id = congruent_terms(map, a.argm, b.argm);
-        var ret = func_id && argm_id;
+        return a.eras === b.eras
+          && congruent_terms(map, a.func, b.func)
+          && congruent_terms(map, a.argm, b.argm);
         break;
       case "LetLet":
-        var expr_id = congruent_terms(map, a.expr, b.expr);
-        var body_id = congruent_terms(map, a.body, b.body);
-        var ret = expr_id && body_id;
+        return congruent_terms(map, a.expr, b.expr)
+          && congruent_terms(map, a.body, b.body);
         break;
       case "AnnAnn":
-        var expr_id = congruent_terms(map, a.expr, b.expr);
-        var ret = expr_id;
-        break;
+        return congruent_terms(map, a.expr, b.expr);
       default:
-        var ret = false;
-        break;
+        return false;
     }
-    return ret;
   }
 };
 
 function equal(a, b, file, dep = 0) {
   var map = {};
-  var vis = [[a, b, dep]];
+  var vis = [[bind_free_vars(a, dep), bind_free_vars(b, dep), dep]];
   var idx = 0;
   while (idx < vis.length) {
     let [a0, b0, depth] = vis[idx];
@@ -864,6 +859,8 @@ function equal(a, b, file, dep = 0) {
     if (!id) {
       switch (a1.ctor + b1.ctor) {
         case "AllAll":
+          if (a1.eras !== b1.eras) return false;
+          if (a1.self !== b1.self) return false;
           var a_bind = subst(a1.bind, Ref("%" + (depth + 0)), 0);
           var b_bind = subst(b1.bind, Ref("%" + (depth + 0)), 0);
           var a_body = subst(a1.body, Ref("%" + (depth + 1)), 1);
@@ -874,11 +871,13 @@ function equal(a, b, file, dep = 0) {
           vis.push([a_body, b_body, depth + 2]);
           break;
         case "LamLam":
+          if (a1.eras !== b1.eras) return false;
           var a_body = subst(a1.body, Ref("%" + (depth + 0)), 0);
           var b_body = subst(b1.body, Ref("%" + (depth + 0)), 0);
           vis.push([a_body, b_body, depth + 1]);
           break;
         case "AppApp":
+          if (a1.eras !== b1.eras) return false;
           vis.push([a1.func, b1.func, depth]);
           vis.push([a1.argm, b1.argm, depth]);
           break;
@@ -1045,7 +1044,7 @@ function typecheck(term, type, file, ctx = Nil(), nam = Nil(), code) {
       break;
     default:
       var infr = typeinfer(term, file, ctx, nam);
-      if (!equal(type, infr, file)) {
+      if (!equal(type, infr, file, ctx.length)) {
         var type_str = stringify_term(normalize(type, {}), nam);
         var infr_str = stringify_term(normalize(infr, {}), nam);
         throw Err(term.locs, ctx, nam,
