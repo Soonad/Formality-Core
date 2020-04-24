@@ -71,6 +71,8 @@ function report(main = "main", dir, ext, parse) {
     console.log("");
     console.log("\033[4m\x1b[1mEvaluating `main`:\x1b[0m");
     try {
+      //console.log(defs[main].term);
+      //console.log(fmc.normalize(defs[main].term, defs));
       console.log(fmc.stringify_term(fmc.normalize(defs[main].term, defs)));
     } catch (e) {
       console.log(e);

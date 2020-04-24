@@ -1,0 +1,5 @@
+Show.string_a : Show("ab")
+  Show.msg("ab")
+
+string_a : String
+  "ab"

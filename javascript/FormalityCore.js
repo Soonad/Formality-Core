@@ -441,6 +441,59 @@ function parse_defs(code, indx = 0) {
 // Stringification
 // ===============
 
+function stringify_shw(term) {
+  if (term.ctor === "Lam" && term.name === "msg") {
+    console.log("is_show")
+    return stringify_cons(term.body.argm);
+  } else {
+    return null;
+  };
+};
+
+function stringify_cons(term) {
+  var val = "";
+  while (true) {
+    if (term.ctor === "Lam" && term.name === "nil") { 
+      return val;
+    }
+    else if (term.ctor === "Lam" && 
+             term.body.ctor === "Lam" &&
+             term.body.name === "cons") {
+    //console.log(stringify_term(term));
+    term = term.body.body;
+    val = val + (String.fromCharCode(stringify_u16(term.func.argm)));
+    term = term.argm;
+   }
+   else { return null; }
+  };
+};
+
+function stringify_u16(term) {
+  var val = 0;
+  if (term.ctor === "Lam" && term.name === "u16") {
+    term = term.body.argm;
+  } else {
+    return null;
+  };
+
+  for (var i = 0; i < 17; ++i) {
+    term = term.body.body.body;
+    if (term.ctor === "Var" && term.indx === 2) { return val;}
+    switch (term.func.indx) {
+      case 0:
+        val = val | (1 << i);
+        term = term.argm;
+        break;
+      case 1:
+        term = term.argm;
+        break;
+      default:
+        return null;
+    };
+  };
+};
+
+
 function stringify_chr(chr) {
   var val = 0;
   for (var i = 0; i < 16; ++i) {
@@ -484,7 +537,10 @@ function stringify_str(term) {
 function stringify_term(term, vars = Nil()) {
   var chr_lit = stringify_chr(term);
   var str_lit = stringify_str(term);
-  if (chr_lit) {
+  var shw_lit = stringify_shw(term);
+  if (shw_lit) {
+    return "Show.msg(\""+shw_lit+"\")";
+  } else if (chr_lit) {
     return "'"+chr_lit+"'";
   } else if (str_lit) {
     return "\""+str_lit+"\"";
@@ -1300,6 +1356,7 @@ module.exports = {
   parse_term,
   parse_defs,
   stringify_chr,
+  stringify_u16,
   stringify_str,
   stringify_term,
   stringify_file,

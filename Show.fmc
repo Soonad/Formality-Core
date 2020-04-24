@@ -1,0 +1,5 @@
+Show: (x: String) -> Type
+  (x)
+  show<P: (x: String) -> Show(x) -> Type> ->
+  (msg: (x: String) -> P(x)(Show.msg(x))) ->
+  P(x)(show)
