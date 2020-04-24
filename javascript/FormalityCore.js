@@ -990,12 +990,63 @@ function congruent_terms(map, a, b) {
   }
 };
 
+function reduce_path(term, file, path){
+    term = reduce(term, file);
+    if (path.length === 0) {
+        return term;
+    }
+    switch (term.ctor) {
+    case "All":
+        if (path[0] === "L") {
+            let bind = reduce_path(term.bind, file, path.slice(1));
+            return All(term.eras, term.self, term.name, bind, term.body);
+        }
+        else {
+            let body = reduce_path(term.body, file, path.slice(1));
+            return All(term.eras, term.self, term.name, term.bind, body);
+        }
+    case "Lam":
+        let body = reduce_path(term.body, file, path.slice(1));
+        return Lam(term.eras, term.name, body);
+    case "App":
+        if (path[0] === "L") {
+            let func = reduce_path(term.func, file, path.slice(1));
+            return App(term.eras, func, term.argm);
+        }
+        else {
+            let argm = reduce_path(term.argm, file, path.slice(1));
+            return App(term.eras, term.func, argm);
+        }
+    case "Let":
+        if (path[0] === "L") {
+            let expr = reduce_path(term.expr, file, path.slice(1));
+            return Let(term.name, expr, term.type);
+        }
+        else {
+            let body = reduce_path(term.body, file, path.slice(1));
+            return Let(term.name, term.expr, body);
+        }
+    case "Ann":
+        if (path[0] === "L") {
+            let expr = reduce_path(term.expr, file, path.slice(1));
+            return Ann(term.done, expr, term.type);
+        }
+        else {
+            let type = reduce_path(term.type, file, path.slice(1));
+            return Ann(term.done, term.expr, type);
+        }
+    default:
+        return term;
+    }
+    return term;
+}
+
 function equal(a, b, file, nam = Nil(), dep = 0) {
   var map = {};
-  var vis = [[bind_free_vars(a, nam, dep), bind_free_vars(b, nam, dep), dep]];
+  var vis = [[bind_free_vars(a, nam, dep), bind_free_vars(b, nam, dep), dep, []]];
   var idx = 0;
   while (idx < vis.length) {
-    let [a0, b0, dep] = vis[idx];
+    let [a0, b0, dep, path] = vis[idx];
     let a1 = reduce(a0, file);
     let b1 = reduce(b0, file);
     let id = congruent_terms(map, a1, b1);
@@ -1005,44 +1056,44 @@ function equal(a, b, file, nam = Nil(), dep = 0) {
     if (!id) {
       switch (a1.ctor + b1.ctor) {
         case "AllAll":
-          if (a1.eras !== b1.eras) return [false,a1,b1];
-          if (a1.self !== b1.self) return [false,a1,b1];
+          if (a1.eras !== b1.eras) return [false,path];
+          if (a1.self !== b1.self) return [false,path];
           var a_bind = subst(a1.bind, Ref(a1.self+"#"+(dep+0)), 0);
           var b_bind = subst(b1.bind, Ref(a1.self+"#"+(dep+0)), 0);
           var a_body = subst(a1.body, Ref(a1.name+"#"+(dep+1)), 1);
           var a_body = subst(a_body, Ref(a1.self+"#"+(dep+0)), 0);
           var b_body = subst(b1.body, Ref(a1.name+"#"+(dep+1)), 1);
           var b_body = subst(b_body, Ref(a1.self+"#"+(dep+0)), 0);
-          vis.push([a_bind, b_bind, dep+1]);
-          vis.push([a_body, b_body, dep+2]);
+          vis.push([a_bind, b_bind, dep+1, path.concat("L")]);
+          vis.push([a_body, b_body, dep+2, path.concat("R")]);
           break;
         case "LamLam":
-          if (a1.eras !== b1.eras) return [false,a1,b1];
+          if (a1.eras !== b1.eras) return [false,path];
           var a_body = subst(a1.body, Ref(a1.name+"#"+(dep+0)), 0);
           var b_body = subst(b1.body, Ref(a1.name+"#"+(dep+0)), 0);
-          vis.push([a_body, b_body, dep+1]);
+          vis.push([a_body, b_body, dep+1, path.concat("C")]);
           break;
         case "AppApp":
-          if (a1.eras !== b1.eras) return [false,a1,b1];
-          vis.push([a1.func, b1.func, dep]);
-          vis.push([a1.argm, b1.argm, dep]);
+          if (a1.eras !== b1.eras) return [false,path];
+          vis.push([a1.func, b1.func, dep, path.concat("L")]);
+          vis.push([a1.argm, b1.argm, dep, path.concat("R")]);
           break;
         case "LetLet":
           var a_body = subst(a1.body, Ref("#" + (dep+0)), 0);
           var b_body = subst(b1.body, Ref("#" + (dep+0)), 0);
-          vis.push([a1.expr, b1.expr, dep]);
-          vis.push([a_body, b_body, dep+1]);
+          vis.push([a1.expr, b1.expr, dep, path.concat("L")]);
+          vis.push([a_body, b_body, dep+1, path.concat("R")]);
           break;
         case "AnnAnn":
-          vis.push([a1.expr, b1.expr, dep]);
+          vis.push([a1.expr, b1.expr, dep, path.concat("L")]);
           break;
         default:
-          return [false,a1,b1];
+          return [false,path];
       }
     };
     idx += 1;
   };
-  return [true,a,b];
+  return [true,[]];
 };
 
 // Errors
@@ -1191,10 +1242,10 @@ function typecheck(term, type, file, ctx = Nil(), nam = Nil(), code) {
       break;
     default:
       var infr = typeinfer(term, file, ctx, nam);
-      var [eq, type1, infr1] = equal(type, infr, file, nam, ctx.length);
+      var [eq, path] = equal(type, infr, file, nam, ctx.length);
       if (!eq) {
-        var type1_str = stringify_term(normalize(type1, {}), nam);
-        var infr1_str = stringify_term(normalize(infr1, {}), nam);
+        var type1_str = stringify_term(reduce_path(type,file,path), nam);
+        var infr1_str = stringify_term(reduce_path(infr,file,path), nam);
         var type0_str = stringify_term(normalize(type, {}), nam);
         var infr0_str = stringify_term(normalize(infr, {}), nam);
         throw Err(term.locs, ctx, nam,
