@@ -441,55 +441,135 @@ function parse_defs(code, indx = 0) {
 // Stringification
 // ===============
 
-function stringify_shw(term) {
-  if (term.ctor === "Lam" && term.name === "msg") {
-    console.log("is_show")
-    return stringify_cons(term.body.argm);
-  } else {
-    return null;
-  };
+function stringify_prm(term,vars) {
+  if (term.ctor      === "Lam" && term.name      === "_prim.string.nil" &&
+      term.body.ctor === "Lam" && term.body.name === "_prim.string.cons")
+  { return "\"" + stringify_prm_str(term) + "\""; }
+  else if
+     (term.ctor      === "Lam" && term.name      === "_prim.nat.zero" &&
+      term.body.ctor === "Lam" && term.body.name === "_prim.nat.succ")
+  { return stringify_prm_nat(term) + "n"; } 
+  else if
+     (term.ctor      === "Lam" && term.name      === "_prim.list.nil" &&
+      term.body.ctor === "Lam" && term.body.name === "_prim.list.cons")
+  { return stringify_prm_list(term,vars); }
+  else if
+     (term.ctor      === "Lam" && term.name      === "_prim.unit.new")
+  { return "Unit.new"; }
+  else if
+     (term.ctor      === "Lam" && term.name      === "_prim.pair.new")
+  { let left  = stringify_term(term.body.func.argm,vars);
+    let right = stringify_term(term.body.argm,vars);
+    return "Pair.new("+left+","+right+")";
+  }
+  else if
+     (term.ctor      === "Lam" && term.name      === "_prim.bool.true" &&
+      term.body.ctor === "Lam" && term.body.name === "_prim.bool.false") 
+  {
+    if (term.body.body.ctor === "Var" && term.body.body.indx === 0) {
+      return "Bool.false";
+    }
+    else if
+       (term.body.body.ctor === "Var" && term.body.body.indx === 1) {
+      return "Bool.true";
+    }
+    else { return null;}
+  }
+  else if
+     (term.ctor      === "Lam" && term.name      === "_prim.u16.new")
+  { return "U16." + stringify_prm_word(term.body.body.body.argm,16); }
+  else if
+     (term.ctor      === "Lam" && term.name      === "_prim.u32.new")
+  { return "U32." + stringify_prm_word(term.body.argm,32); }
+  else if
+     (term.ctor      === "Lam" && term.name      === "_prim.u64.new")
+  { return "U64." + stringify_prm_word(term.body.argm,64); }
+  else
+  { return null; };
 };
 
-function stringify_cons(term) {
+function stringify_prm_str(term) {
   var val = "";
   while (true) {
-    if (term.ctor === "Lam" && term.name === "nil") { 
-      return val;
-    }
-    else if (term.ctor === "Lam" && 
-             term.body.ctor === "Lam" &&
-             term.body.name === "cons") {
-    //console.log(stringify_term(term));
+    if (term.ctor      === "Lam" && term.name      === "_prim.string.nil" &&
+        term.body.ctor === "Lam" && term.body.name === "_prim.string.cons")
+    {
     term = term.body.body;
-    val = val + (String.fromCharCode(stringify_u16(term.func.argm)));
-    term = term.argm;
-   }
-   else { return null; }
+    switch (term.ctor) {
+        case "Var":
+          return val;
+        case "App":
+          u16_body = term.func.argm.body.argm;
+          val = val + (String.fromCharCode(stringify_prm_word(u16_body)));
+          term = term.argm;
+          break;
+        default:
+          return null;
+      };
+    } else { return null; }
   };
 };
 
-function stringify_u16(term) {
+function stringify_prm_nat(term) {
   var val = 0;
-  if (term.ctor === "Lam" && term.name === "u16") {
-    term = term.body.argm;
-  } else {
-    return null;
+  while (true) {
+    if (term.ctor      === "Lam" && term.name      === "_prim.nat.zero" &&
+        term.body.ctor === "Lam" && term.body.name === "_prim.nat.succ")
+    {
+    switch (term.body.body.ctor) {
+        case "Var":
+          return val;
+        case "App":
+          term = term.body.body;
+          val = val + 1;
+          term = term.argm;
+          break;
+        default:
+          return null;
+      };
+    } else { return null; }
   };
+};
 
-  for (var i = 0; i < 17; ++i) {
+function stringify_prm_list(term,vars) {
+  var val = [];
+  while (true) {
+    if (term.ctor      === "Lam" && term.name      === "_prim.list.nil" &&
+        term.body.ctor === "Lam" && term.body.name === "_prim.list.cons")
+    {
+    switch (term.body.body.ctor) {
+        case "Var":
+          return "[" + val.join(",") + "]";
+        case "App":
+          term = term.body.body;
+          val.push(stringify_term(term.func.argm,vars));
+          term = term.argm;
+          break;
+        default:
+          return null;
+      };
+    } else { return null; }
+  };
+};
+
+function stringify_prm_word(term,size) {
+  var val = 0;
+  for (var i = 0; i <= 32; ++i) {
     term = term.body.body.body;
-    if (term.ctor === "Var" && term.indx === 2) { return val;}
-    switch (term.func.indx) {
-      case 0:
-        val = val | (1 << i);
-        term = term.argm;
-        break;
-      case 1:
-        term = term.argm;
-        break;
-      default:
-        return null;
-    };
+    if      (term.ctor === "Var" && term.indx === 2) { return val;}
+    else if (term.ctor === "App") { 
+      switch (term.func.indx) {
+        case 0:
+          val = val | (1 << i);
+          term = term.argm;
+          break;
+        case 1:
+          term = term.argm;
+          break;
+        default:
+          return null;
+      };
+    } else { return null;};
   };
 };
 
@@ -537,9 +617,9 @@ function stringify_str(term) {
 function stringify_term(term, vars = Nil()) {
   var chr_lit = stringify_chr(term);
   var str_lit = stringify_str(term);
-  var shw_lit = stringify_shw(term);
-  if (shw_lit) {
-    return "Show.msg(\""+shw_lit+"\")";
+  var prm_lit = stringify_prm(term,vars);
+  if (prm_lit) {
+    return prm_lit;
   } else if (chr_lit) {
     return "'"+chr_lit+"'";
   } else if (str_lit) {
@@ -1356,7 +1436,6 @@ module.exports = {
   parse_term,
   parse_defs,
   stringify_chr,
-  stringify_u16,
   stringify_str,
   stringify_term,
   stringify_file,

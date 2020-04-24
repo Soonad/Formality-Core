@@ -1,3 +1,0 @@
-Show.msg: (x: String) -> Show(x)
-  (x)
-  <P> (msg) msg(x)
