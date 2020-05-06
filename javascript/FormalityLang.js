@@ -425,14 +425,83 @@ function stringify_str(term) {
   }
 };
 
+function stringify_run(term) {
+  if (term.ctor === "Lam" && term.name === "strnil") {
+    try {
+      term = to_low_order(term);
+//      console.log(term);
+      term = term.body.body;
+      var str = "";
+      while (term.ctor !== "Var") {
+        var val = 0;
+        var chr = term.func.argm.body.argm;
+        for (var i = 0; i < 16; ++i) {
+          chr = chr.body.body.body;
+          if (chr.func.indx === 0) {
+            val = val | (1 << i);
+          }
+          chr = chr.argm;
+        }
+        term = term.argm.body.body;
+        str += String.fromCharCode(val);
+      }
+      return "\""+str+"\"";
+    } catch (e) {
+      return null;
+    }
+  }
+  return null;
+};
+
+
+function to_low_order(term, depth = 0) {
+  switch (term.ctor) {
+    case "Var":
+      return Var(depth - term.indx - 1, term.locs);
+    case "Ref":
+      return Ref(term.name, term.locs);
+    case "Typ":
+      return Typ();
+    case "All":
+      var eras = term.eras;
+      var self = term.self;
+      var name = term.name;
+      var bind = to_low_order(term.bind(Var(depth)), depth + 1);
+      var body = to_low_order(term.body(Var(depth), Var(depth+1)), depth + 2);
+      var locs = term.locs;
+      return All(eras, self, name, bind, body, locs);
+    case "Lam":
+      var name = term.name;
+      var body = to_low_order(term.body(Var(depth)), depth + 1);
+      var locs = term.locs;
+      return Lam(false, name, body, locs);
+    case "App":
+      var func = to_low_order(term.func, depth);
+      var argm = to_low_order(term.argm, depth);
+      var locs = term.locs;
+      return App(false, func, argm, locs);
+    case "Let":
+      var name = term.name;
+      var expr = to_low_order(term.expr, depth);
+      var body = to_low_order(term.body(Var(depth)), depth + 1);
+      var locs = term.locs;
+      return Let(name, expr, body, locs);
+    case "Ann":
+      throw "Unreachable.";
+  }
+};
+
 // Stringifies a term
 function stringify(term) {
   var chr_lit = stringify_chr(term);
   var str_lit = stringify_str(term);
+  var run_lit = stringify_run(term);
   if (chr_lit) {
     return "'"+chr_lit+"'";
   } else if (str_lit) {
     return "\""+str_lit+"\"";
+  } else if (run_lit) {
+    return run_lit;
   } else {
     switch (term.ctor) {
       case "Var":
