@@ -539,20 +539,39 @@ function parse_chr(code, indx, err) {
     ))));
 };
 
+function take_while(cond, code, indx) {
+  var acc = []
+  while (indx < code.length && cond(code[indx])) {
+    acc.push(code[indx])
+    indx++;
+  };
+  return [indx, acc];
+};
+
+function str_char(chr) {
+  var val = chr.charCodeAt(0);
+  return (val != 34 && val >= 32 && val < 127 )
+};
+
 // Parses a string literal, "foo"
+
 function parse_str(code, indx, err) {
   var from = next(code, indx);
   return (
     chain(parse_txt(code, next(code, indx), "\""), (indx, skip) =>
-    chain((function go(indx, slit) {
+    chain((function go(indx) {
       if (indx < code.length) {
-        if (code[indx] !== "\"") {
-          var chr = make_chr(code[indx]);
-          var [indx, slit] = go(indx + 1, slit);
-          return [indx, App(false, App(false, Ref("String.cons"), chr), slit)];
-        } else {
-          return [indx+1, Ref("String.nil")];
-        }
+        var acc = []
+        while (code[indx] !== "\"") {
+          acc.push(code[indx]);
+          indx++;
+        };
+        var slit = Ref("String.nil")
+        while (acc.length > 0) {
+          var chr = make_chr(acc.pop());
+          slit = App(false, App(false, Ref("String.cons"), chr), slit);
+        };
+        return [indx+1, slit];
       } else if (err) {
         parse_error(code, indx, "string literal", true);
       } else {
@@ -561,6 +580,28 @@ function parse_str(code, indx, err) {
     })(indx), (indx, slit) =>
     [indx, xs => Loc(from, indx, Ann(true, slit, Ref("String")))])));
 };
+
+//function parse_str(code, indx, err) {
+//  var from = next(code, indx);
+//  return (
+//    chain(parse_txt(code, next(code, indx), "\""), (indx, skip) =>
+//    chain((function go(indx, slit) {
+//      if (indx < code.length) {
+//        if (code[indx] !== "\"") {
+//          var chr = make_chr(code[indx]);
+//          var [indx, slit] = go(indx + 1, slit);
+//          return [indx, App(false, App(false, Ref("String.cons"), chr), slit)];
+//        } else {
+//          return [indx+1, Ref("String.nil")];
+//        }
+//      } else if (err) {
+//        parse_error(code, indx, "string literal", true);
+//      } else {
+//        return null;
+//      }
+//    })(indx), (indx, slit) =>
+//    [indx, xs => Loc(from, indx, Ann(true, slit, Ref("String")))])));
+//};
 
 // Parses a list literal, `[a, b, c]`
 function parse_lst(code, indx, err) {
@@ -1285,4 +1326,6 @@ module.exports = {
   stringify_defs,
   highlight_code,
   stringify_err,
+  take_while,
+  str_char
 };
