@@ -1,6 +1,6 @@
 var {
   Var, Ref, Typ, All,
-  Lam, App, Let, Ann,
+  Lam, App, Let, LetR, Ann,
   Loc, Ext, Nil, Hol,
   reduce,
   normalize,
@@ -250,6 +250,25 @@ function parse_let(code, indx, err = false) {
       var tbody = (x) => body(Ext([name,x],xs));
       return Loc(from, indx, Let(dups, name, expr(xs), tbody));
     }])))))));
+};
+
+// Parses a local definition, `letrec x = val; body`
+function parse_letrec(code, indx, err = false) {
+  var from = next(code, indx);
+  return (
+    chain(parse_txt(code, next(code, indx), "letrec ", false), (indx, skip) =>
+    chain(parse_nam(code, next(code, indx), 0, err),         (indx, name) =>
+    chain(parse_txt(code, next(code, indx), ":", err),       (indx, skip) =>
+    chain(parse_trm(code, indx, err),                        (indx, type) =>
+    chain(parse_txt(code, next(code, indx), "=", err),       (indx, skip) =>
+    chain(parse_trm(code, indx, err),                        (indx, expr) =>
+    chain(parse_opt(code, indx, ";", err),                   (indx, skip) =>
+    chain(parse_trm(code, indx, err),                        (indx, body) =>
+    [indx, xs => {
+      var tbody = (x) => body(Ext([name,x],xs));
+      var texpr = (rec) => expr(Ext([name,rec],xs));
+      return Loc(from, indx, LetR(name, texpr, type(xs), tbody));
+    }])))))))));
 };
 
 // Parses a monadic application of 2 args, `use a b = x; y` ~> `x((a) (b) y)`
@@ -596,6 +615,7 @@ function parse_trm(code, indx = 0, err) {
     () => parse_all(code, indx, err),
     () => parse_lam(code, indx, err),
     () => parse_let(code, indx, err),
+    () => parse_letrec(code, indx, err),
     () => parse_us2(code, indx, err),
     () => parse_us1(code, indx, err),
     () => parse_us0(code, indx, err),
@@ -768,6 +788,7 @@ function unloc(term) {
     case "Lam": return Lam(term.eras, term.name, x => unloc(term.body(x)));
     case "App": return App(term.eras, unloc(term.func), unloc(term.argm));
     case "Let": return Let(term.dups, term.name, unloc(term.expr), x => unloc(term.body(x)));
+    case "LetR": return LetR(term.name, rec => unloc(term.expr(rec)), unloc(term.type), x => unloc(term.body(x)));
     case "Ann": return Ann(term.done, unloc(term.expr), unloc(term.type));
     case "Loc": return unloc(term.expr);
     case "Hol": return term;
@@ -919,6 +940,12 @@ function stringify_trm(term) {
         var expr = stringify_trm(term.expr);
         var body = stringify_trm(term.body(Var(name+"#")));
         return dups+name+" = "+expr+"; "+body;
+      case "LetR":
+        var name = term.name;
+        var expr = stringify_trm(term.expr);
+        var type = stringify_trm(term.type);
+        var body = stringify_trm(term.body(Var(name+"#")));
+        return "μ"+name+" : "+type+" = "+expr+"; "+body;
       case "Ann":
         if (term.done) {
           return stringify_trm(term.expr);
@@ -1262,6 +1289,7 @@ module.exports = {
   parse_all,
   parse_lam,
   parse_let,
+  parse_letrec,
   parse_us2,
   parse_us1,
   parse_us0,

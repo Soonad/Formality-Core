@@ -9,11 +9,13 @@ const Typ = ()                         => ({ctor:"Typ"});
 const All = (eras,self,name,bind,body) => ({ctor:"All",eras,self,name,bind,body});
 const Lam = (eras,name,body)           => ({ctor:"Lam",eras,name,body});
 const App = (eras,func,argm)           => ({ctor:"App",eras,func,argm});
+const LetR = (name, expr, type, body)  => ({ctor:"LetR",name, expr, type, body});
 const Let = (dups,name,expr,body)      => ({ctor:"Let",dups,name,expr,body});
 const Ann = (done,expr,type)           => ({ctor:"Ann",done,expr,type});
 const Loc = (from,upto,expr)           => ({ctor:"Loc",from,upto,expr});
 const Hol = (name,vals)                => ({ctor:"Hol",name,vals});
 
+const Y = Lam(false, "f", (f) => App(false, Lam(false, "x", (x) => App(false, f, App(false, x, x))), Lam(false, "x", (x) => App(false, f, App(false, x, x)))));
 // List
 // ====
 
@@ -85,6 +87,12 @@ function stringify(term) {
       var expr = stringify(term.expr);
       var body = stringify(term.body(Var(term.name+"#")));
       return dups + name + "=" + expr + ";" + body;
+    case "LetR":
+      var name = term.name;
+      var expr = stringify(term.expr(Var(term.name+"#")));
+      var type = stringify(term.type);
+      var body = stringify(term.body(Var(term.name+"#")));
+      return "μ" + name + "%" + type + "=" + expr + ";" + body;
     case "Ann":
       var type = stringify(term.type);
       var expr = stringify(term.expr);
@@ -166,6 +174,15 @@ function parse(code, indx) {
         var skip = parse_char(";");
         var body = parse_term();
         return ctx => Let(dups, name, expr(ctx), x => body(Ext([name,x],ctx)));
+      case "μ":
+        var name = parse_name();
+        var skip = parse_char("=");
+        var expr = parse_term();
+        var skip = parse_char(":");
+        var type = parse_type();
+        var skip = parse_char(";");
+        var body = parse_term();
+        return ctx => LetR(name, rec => expr(Ext([name,rec],ctx)), type(ctx), x => body(Ext([name,x],ctx)));
       case ":":
         var type = parse_term();
         var expr = parse_term();
@@ -256,6 +273,10 @@ function reduce(term, defs, hols = {}, erased = false) {
       var expr = term.expr;
       var body = term.body;
       return reduce(body(expr), defs, hols, erased);
+    case "LetR":
+      var rec = App(false, Y, Lam(false, "rec", term.expr));
+      var body = term.body;
+      return reduce(body(rec), defs, erased);
     case "Ann":
       return reduce(term.expr, defs, hols, erased);
     case "Loc":
@@ -301,8 +322,6 @@ function normalize(term, defs, hols = {}, erased = false, seen = {}) {
         var func = normalize(norm.func, defs, hols, erased, seen);
         var argm = normalize(norm.argm, defs, hols, erased, seen);
         return App(eras, func, argm);
-      case "Let":
-        return normalize(norm.body(norm.expr), defs, hols, erased, seen);
       case "Ann":
         return normalize(norm.expr, defs, hols, erased, seen);
       case "Loc":
@@ -353,6 +372,12 @@ function canonicalize(term, hols = {}) {
       var expr = canonicalize(term.expr, hols);
       var body = x => canonicalize(term.body(x), hols);
       return Let(dups, name, expr, body);
+    case "LetR":
+      var name = term.name;
+      var expr = rec => canonicalize(term.expr(rec), hols);
+      var type = canonicalize(term.type, hols);
+      var body = x => canonicalize(term.body(x), hols);
+      return LetR(name, expr, type, body);
     case "Ann":
       if (term.done === true) {
         return canonicalize(term.expr, hols);
@@ -406,6 +431,10 @@ function hash(term, dep = 0) {
       var expr = hash(term.expr, dep);
       var body = hash(term.body(Var("#"+(-dep-1))), dep+1);
       return "$" + expr + body;
+    case "LetR":
+      var expr = hash(term.expr(Var("#"+(-dep-1))), dep+1);
+      var body = hash(term.body(Var("#"+(-dep-1))), dep+1);
+      return "μ" + expr + body;
     case "Ann":
       var expr = hash(term.expr, dep);
       return expr;
@@ -446,13 +475,6 @@ function equal(a, b, defs, hols, dep = 0, rec = {}) {
         return a1.eras === b1.eras
             && equal(a1.func, b1.func, defs, hols, dep, rec)
             && equal(a1.argm, b1.argm, defs, hols, dep, rec);
-      case "LetLet":
-        var a1_body = a1.body(Var("#"+(dep)));
-        var b1_body = b1.body(Var("#"+(dep)));
-        vis.push([a1.expr, b1.expr, dep]);
-        vis.push([a1_body, b1_body, dep+1]);
-        return equal(a1.expr, b1.expr, defs, hols, dep+0, rec)
-            && equal(a1_body, b1_body, defs, hols, dep+1, rec);
       case "AnnAnn":
         return equal(a1.expr, b1.expr, defs, hols, dep, rec);
       case "LocLoc":
@@ -604,6 +626,13 @@ function typeinfer(term, defs, show = stringify, hols = {}, ctx = Nil(), locs = 
           return done([hols, body_typ]);
         })
       });
+    case "LetR":
+      var expr_typ = term.type;
+      var expr_var = Ann(true, Var(term.name+"#"+(ctx.size+1)), expr_typ);
+      return deep([[typeinfer, [term.body(expr_var), defs, show, hols, body_ctx, locs]]], ([hols, body_typ]) => {
+        var body_ctx = Ext({name:term.name,type:expr_var.type}, ctx);
+        return done([hols, body_typ]);
+      });
     case "Ann":
       if (!term.done) {
         return deep([[typecheck, [term.expr, term.type, defs, show, hols, ctx, locs]]], ([hols, _]) => {
@@ -661,6 +690,13 @@ function typecheck(term, type, defs, show = stringify, hols = {}, ctx = Nil(), l
         return deep([[typecheck, [term.body(expr_var), type, defs, show, hols, body_ctx, locs]]], ([hols, _]) => {
           return done([hols, type]);
         });
+      });
+    case "LetR":
+      var expr_typ = term.type;
+      var expr_var = Ann(true, Var(term.name+"#"+(ctx.size+1)), expr_typ);
+      var body_ctx = Ext({name:term.name,type:expr_var.type}, ctx);
+      return deep([[typecheck, [term.body(expr_var), type, defs, show, hols, body_ctx, locs]]], ([hols, _]) => {
+        return done([hols, type]);
       });
     case "Loc":
       var locs = {from: term.from, upto: term.upto};
@@ -817,6 +853,7 @@ module.exports = {
   Lam,
   App,
   Let,
+  LetR,
   Ann,
   Loc,
   Hol,

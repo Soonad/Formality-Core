@@ -99,9 +99,9 @@ function _fm_(main = "main", dir, ext = ".fm", parse = fm.lang.parse, show = fm.
     console.log("");
     console.log("\033[4m\x1b[1mEvaluating main:\x1b[0m");
     try {
-      console.log(show(fm.synt.normalize(synt[main].term, synt, {}, true)));
+      console.log(show(norm(synt[main].term, synt, {}, true)));
     } catch (e) {
-      error("Error.", exit_code);
+      error(e, exit_code);
     }
   };
 

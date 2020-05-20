@@ -7,10 +7,12 @@ const Typ = ()                         => ({ctor:"Typ"});
 const All = (eras,self,name,bind,body) => ({ctor:"All",eras,self,name,bind,body});
 const Lam = (eras,name,body)           => ({ctor:"Lam",eras,name,body});
 const App = (eras,func,argm)           => ({ctor:"App",eras,func,argm});
+const LetR = (name, expr, type, body)  => ({ctor:"LetR",name, expr, type, body});
 const Let = (dups,name,expr,body)      => ({ctor:"Let",dups,name,expr,body});
 const Ann = (done,expr,type)           => ({ctor:"Ann",done,expr,type});
 const Loc = (from,upto,expr)           => ({ctor:"Loc",from,upto,expr});
 
+const Y = Lam(false, "f", (f) => App(false, Lam(false, "x", (x) => App(false, f, App(false, x, x))), Lam(false, "x", (x) => App(false, f, App(false, x, x)))));
 // List
 // ====
 
@@ -61,11 +63,17 @@ function stringify(term) {
       var clos = term.eras ? ">" : ")";
       return open + func + " " + argm + clos;
     case "Let":
-      var dups = term.dups ? "$" : "@";
+      var dups = term.dups ? "@" : "$";
       var name = term.name;
       var expr = stringify(term.expr);
       var body = stringify(term.body(Var(term.name+"#")));
       return dups + name + "=" + expr + ";" + body;
+    case "LetR":
+      var name = term.name;
+      var expr = stringify(term.expr);
+      var type = stringify(term.type);
+      var body = stringify(term.body(Var(term.name+"#")));
+      return "μ" + name + " : " + type + "=" + expr + ";" + body;
     case "Ann":
       var type = stringify(term.type);
       var expr = stringify(term.expr);
@@ -145,6 +153,16 @@ function parse(code, indx) {
         var skip = parse_char(";");
         var body = parse_term();
         return ctx => Let(dups, name, expr(ctx), x => body(Ext([name,x],ctx)));
+      case "μ":
+        var name = parse_name();
+        var skip = parse_char("%");
+        var type = parse_term();
+        var skip = parse_char("=");
+        var expr = parse_term();
+        var skip = parse_char(";");
+        var body = parse_term();
+        
+        return ctx => LetR(name, rec => expr(Ext([name,rec],ctx)), type(ctx), x => body(Ext([name,x],ctx)));
       case ":":
         var type = parse_term();
         var expr = parse_term();
@@ -231,6 +249,10 @@ function reduce(term, defs, erased = false) {
       var expr = term.expr;
       var body = term.body;
       return reduce(body(expr), defs, erased);
+    case "LetR":
+      var rec = App(false, Y, Lam(false, "rec", term.expr));
+      var body = term.body;
+      return reduce(body(rec), defs, erased);
     case "Ann":
       return reduce(term.expr, defs, erased);
     case "Loc":
@@ -271,8 +293,6 @@ function normalize(term, defs, erased = false, seen = {}) {
         var func = normalize(norm.func, defs, erased, seen);
         var argm = normalize(norm.argm, defs, erased, seen);
         return App(eras, func, argm);
-      case "Let":
-        return normalize(norm.body(norm.expr), defs, erased, seen);
       case "Ann":
         return normalize(norm.expr, defs, erased, seen);
       case "Loc":
@@ -314,6 +334,10 @@ function hash(term, dep = 0) {
       var expr = hash(term.expr, dep);
       var body = hash(term.body(Var("#"+(-dep-1))), dep+1);
       return "$" + expr + body;
+    case "LetR":
+      var expr = hash(term.expr(Var("#"+(-dep-1))), dep+1);
+      var body = hash(term.body(Var("#"+(-dep-1))), dep+1);
+      return "μ" + expr + body;
     case "Ann":
       var expr = hash(term.expr, dep);
       return expr;
@@ -352,13 +376,6 @@ function equal(a, b, defs, dep = 0, seen = {}) {
         return a1.eras === b1.eras
             && equal(a1.func, b1.func, defs, dep, seen)
             && equal(a1.argm, b1.argm, defs, dep, seen);
-      case "LetLet":
-        var a1_body = a1.body(Var("#"+(dep)));
-        var b1_body = b1.body(Var("#"+(dep)));
-        vis.push([a1.expr, b1.expr, dep]);
-        vis.push([a1_body, b1_body, dep+1]);
-        return equal(a1.expr, b1.expr, defs, dep+0, seen)
-            && equal(a1_body, b1_body, defs, dep+1, seen);
       case "AnnAnn":
         return equal(a1.expr, b1.expr, defs, dep, seen);
       case "LocLoc":
@@ -415,6 +432,12 @@ function typeinfer(term, defs, show = stringify, ctx = Nil(), locs = null) {
       var body_ctx = Ext({name:term.name,type:expr_var.type}, ctx);
       var body_typ = typeinfer(term.body(expr_var), defs, show, body_ctx);
       return body_typ;
+    case "LetR":
+      var expr_typ = term.type;
+      var expr_var = Ann(true, Var(term.name+"#"+(ctx.size+1)), expr_typ);
+      var body_ctx = Ext({name:term.name,type:expr_var.type}, ctx);
+      var body_typ = typeinfer(term.body(expr_var), defs, show, body_ctx);
+      return body_typ;
     case "All":
       var self_var = Ann(true, Var(term.self+"#"+ctx.size), term);
       var name_var = Ann(true, Var(term.name+"#"+(ctx.size+1)), term.bind);
@@ -444,7 +467,7 @@ function typecheck(term, type, defs, show = stringify, ctx = Nil(), locs = null)
         var name_var = Ann(true, Var(term.name+"#"+(ctx.size+1)), typv.bind);
         var body_typ = typv.body(self_var, name_var);
         if (term.eras !== typv.eras) {
-          throw () => Err(locs, ctx, "Type mismatch.");
+            throw () => Err(locs, ctx, "Type mismatch.");
         };
         var body_ctx = Ext({name:term.name,type:name_var.type}, ctx);
         typecheck(term.body(name_var), body_typ, defs, show, body_ctx);
@@ -456,6 +479,13 @@ function typecheck(term, type, defs, show = stringify, ctx = Nil(), locs = null)
       var expr_typ = typeinfer(term.expr, defs, show, ctx);
       var expr_var = Ann(true, term.dups ? Var(term.name+"#"+(ctx.size+1)) : term.expr, expr_typ);
       var body_ctx = Ext({name:term.name,type:expr_var.type}, ctx);
+      typecheck(term.body(expr_var), type, defs, show, body_ctx);
+      break;
+    case "LetR":
+      var expr_typ = term.type;
+      var expr_var = Ann(true, Var(term.name+"#"+(ctx.size+1)), expr_typ);
+      var body_ctx = Ext({name: term.name, type: expr_var.type}, ctx);
+      typecheck(term.expr(expr_var), expr_typ, defs, show, body_ctx);
       typecheck(term.body(expr_var), type, defs, show, body_ctx);
       break;
     case "Loc":
