@@ -6,13 +6,15 @@ function error(msg, exit_code) {
 };
 
 function load(dir = ".", ext = ".fm", parse = fm.lang.parse, exit_code = 0) {
+  console.log("dir: " + dir)
+  console.log("ext: " + ext)
   var files = fs.readdirSync(dir).filter(file => file.slice(-ext.length) === ext);
   if (files.length === 0) {
     error("No local " + ext + " file found.", exit_code);
   } else {
     var result = {files: {}, defs: {}};
     for (var file of files) {
-      var file_code = fs.readFileSync(file, "utf8");
+      var file_code = fs.readFileSync(dir + "/" + file, "utf8");
       try {
         var file_defs = parse(file_code, 0, file);
       } catch (err) {
@@ -135,8 +137,9 @@ function _hs_(main = "main", dir, ext, parse) {
   //};
 };
 
-function _io_(main = "main", dir, ext, parse) {
-  var {defs} = load(dir, ".fmc", fm.core.parse);
+function _io_(main = "main", dir = ".fmc", parse) {
+  console.log(main)
+  var {defs} = load(".fmc", ".fmc", fm.core.parse);
   if (!defs[main]) {
     console.log("Term '" + main + "' not found.");
   } else {
