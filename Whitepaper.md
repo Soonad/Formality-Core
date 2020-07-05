@@ -511,7 +511,7 @@ function safe_div(a: Number, b: Number): Number {
 
 Since here `a` and `b` have the static `Number` type, we don't need to check
 that at runtime. Moreover, calling `safe_div` with a `String` results in a nice
-compile-time error. Problem is, we still need to check that `b` is larger than
+compile-time error. Problem is, we still need to check that `b` is not equal to
 `0`. Is it possible to perform that check at runtime too? Indeed, that's
 precisely what dependent types do. In Formality-Core, we can write:
 
@@ -522,7 +522,7 @@ safe_div : (a: Number) -> (b: Number) -> NonZero(b) -> Number
 
 Here, `NonZero(a)` represents a symbolic proof that `b` isn't zero. In order to
 call `safe_div`, the compiler would demand us to assert that this is true by,
-for example, using `if b != 0` before calling `safe_div`. In another words, the
+for example, using `if b != 0` before calling `safe_div`. In other words, the
 type-system is Turing complete, allowing all sorts of invariants to be
 symbolically enforced at compile time. That's what makes it suitable as a proof
 language.
