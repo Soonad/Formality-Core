@@ -83,7 +83,7 @@ that solution is that providing a semantics and, thus, proving the consistency
 of the resulting system becomes extremely hard.
 
 Aaron Stump moved on from self types towards a very similar solution based on
-dependent intersections. The idea is theat, instead of relying on mutual
+dependent intersections. The idea is that, instead of relying on mutual
 recursion, inductive datatypes can refer to themselves in simplified, erased
 forms. This results in a comparably small language that is much easier to
 provide a semantics for, which Aaron Stump called Cedille-Core. In exchange,
@@ -99,7 +99,7 @@ Formality has a different take on consistency that comes from the realization
 that consistency isn't hard, it is complex. The reason is that consistency
 demands termination, which, due to the halting problem, simply can't be
 implemented without either forbidding a program that is "important to someone",
-or by making the language extremelly more complex.
+or by making the language extremely more complex.
 
 For example, there is a very easy way to make a proof language consistent:
 disable recursion and non-affine lambdas. This would be sound even with
